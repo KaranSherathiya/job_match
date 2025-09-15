@@ -36,27 +36,76 @@ def atomify(s: str) -> str:
     s = re.sub(r'^_+', '', s)
     return s if s else 'unknown'
 
+# ---------- new helper: remove Education section ----------
+def remove_education_section(text: str) -> str:
+    """
+    Remove the Education section from the resume text so its years don't get counted as experience.
+    We find 'Education' or 'EDUCATION' header and remove until next header like 'Work', 'Experience', or end.
+    """
+    # common section headers that could follow education
+    next_headers = ['work experience', 'experience', 'professional experience', 'skills', 'projects', 'profile', 'work']
+    low = text.lower()
+    idx = low.find("education")
+    if idx == -1:
+        return text  # no education section found
+
+    # slice starting at "education"
+    start = idx
+    # search for next header occurrence after education
+    end = len(text)
+    for h in next_headers:
+        hidx = low.find(h, start + 10)  # look after education heading
+        if hidx != -1 and hidx < end:
+            end = hidx
+
+    # remove the substring education...end
+    cleaned = text[:start] + text[end:]
+    return cleaned
+
+# ---------- updated experience extractor ----------
 def extract_experience_from_text(text: str) -> float:
+    # Normalize dashes first
+    text = normalize_dashes(text)
+
+    # Remove Education section BEFORE extracting work-date patterns
+    text_no_edu = remove_education_section(text)
+
     total_months = 0
-    # Case 1: Month YYYY – Month YYYY
-    pattern1 = re.findall(r"([A-Za-z]+ \d{4})\s*-\s*([A-Za-z]+ \d{4}|Present)", text, re.IGNORECASE)
+
+    # Case 1: Month YYYY - Month YYYY / Present (work experience ranges)
+    pattern1 = re.findall(r"([A-Za-z]+ \d{4})\s*-\s*([A-Za-z]+ \d{4}|Present)", text_no_edu, re.IGNORECASE)
     for start_str, end_str in pattern1:
         try:
             start_date = parser.parse(start_str)
             end_date = datetime.now() if "present" in end_str.lower() else parser.parse(end_str)
             months = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month)
             total_months += max(0, months)
-        except: pass
-    # Case 2: YYYY – YYYY
-    pattern2 = re.findall(r"(\d{4})\s*-\s*(\d{4}|Present)", text, re.IGNORECASE)
+        except:
+            pass
+
+    # Case 2: YYYY - YYYY / Present (year ranges)  treated as whole years
+    pattern2 = re.findall(r"(\d{4})\s*-\s*(\d{4}|Present)", text_no_edu, re.IGNORECASE)
     for start_str, end_str in pattern2:
         try:
             start_year = int(start_str)
             end_year = datetime.now().year if "present" in end_str.lower() else int(end_str)
             years = max(0, end_year - start_year)
             total_months += years * 12
-        except: pass
-    return round(total_months / 12, 1)
+        except:
+            pass
+
+    # Case 3 fallback: explicit "X years" mention — but ignore if we found ranges above
+    if total_months == 0:
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(?:\+)?\s*(?:years|yrs|year)", text_no_edu, re.IGNORECASE)
+        if m:
+            try:
+                val = float(m.group(1))
+                return round(val, 1)
+            except:
+                pass
+
+    years = round(total_months / 12, 1)
+    return years
 
 COMMON_SKILLS = ["python","java","sql","machine learning","nlp","c++","c","c#","r","javascript","docker","spring boot"]
 
@@ -150,4 +199,5 @@ if uploaded_files:
         matches = best_matches(cand, 3)
         st.table([{"Job": m[0], "Match Score": f"{m[1]}%"} for m in matches])
         st.markdown("---")
+
 

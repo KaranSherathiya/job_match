@@ -3,18 +3,14 @@ import pdfplumber
 from dateutil import parser
 from datetime import datetime
 import re
-import tempfile
-import os
-import shutil
-import subprocess
 
 # ---------------------------
-# Basic Config
+# Page Config
 # ---------------------------
 st.set_page_config(page_title="AI Job Matcher", page_icon="💼", layout="wide")
 
 # ---------------------------
-# Helper Functions
+# Helpers
 # ---------------------------
 def normalize_dashes(text: str) -> str:
     return text.replace("–", "-").replace("—", "-").replace("", "-")
@@ -39,40 +35,30 @@ def atomify(s: str) -> str:
 # ---------- new helper: remove Education section ----------
 def remove_education_section(text: str) -> str:
     """
-    Remove the Education section from the resume text so its years don't get counted as experience.
-    We find 'Education' or 'EDUCATION' header and remove until next header like 'Work', 'Experience', or end.
+    Remove the Education section so its years don't get counted as work experience.
     """
-    # common section headers that could follow education
-    next_headers = ['work experience', 'experience', 'professional experience', 'skills', 'projects', 'profile', 'work']
+    next_headers = ['work experience', 'experience', 'professional experience',
+                    'skills', 'projects', 'profile', 'work']
     low = text.lower()
     idx = low.find("education")
     if idx == -1:
-        return text  # no education section found
-
-    # slice starting at "education"
+        return text
     start = idx
-    # search for next header occurrence after education
     end = len(text)
     for h in next_headers:
-        hidx = low.find(h, start + 10)  # look after education heading
+        hidx = low.find(h, start + 10)
         if hidx != -1 and hidx < end:
             end = hidx
-
-    # remove the substring education...end
-    cleaned = text[:start] + text[end:]
-    return cleaned
+    return text[:start] + text[end:]
 
 # ---------- updated experience extractor ----------
 def extract_experience_from_text(text: str) -> float:
-    # Normalize dashes first
     text = normalize_dashes(text)
-
-    # Remove Education section BEFORE extracting work-date patterns
     text_no_edu = remove_education_section(text)
 
     total_months = 0
 
-    # Case 1: Month YYYY - Month YYYY / Present (work experience ranges)
+    # Case 1: Month YYYY - Month YYYY / Present
     pattern1 = re.findall(r"([A-Za-z]+ \d{4})\s*-\s*([A-Za-z]+ \d{4}|Present)", text_no_edu, re.IGNORECASE)
     for start_str, end_str in pattern1:
         try:
@@ -83,7 +69,7 @@ def extract_experience_from_text(text: str) -> float:
         except:
             pass
 
-    # Case 2: YYYY - YYYY / Present (year ranges)  treated as whole years
+    # Case 2: YYYY - YYYY / Present
     pattern2 = re.findall(r"(\d{4})\s*-\s*(\d{4}|Present)", text_no_edu, re.IGNORECASE)
     for start_str, end_str in pattern2:
         try:
@@ -94,24 +80,40 @@ def extract_experience_from_text(text: str) -> float:
         except:
             pass
 
-    # Case 3 fallback: explicit "X years" mention — but ignore if we found ranges above
+    # Case 3: "X years" fallback
     if total_months == 0:
         m = re.search(r"(\d+(?:\.\d+)?)\s*(?:\+)?\s*(?:years|yrs|year)", text_no_edu, re.IGNORECASE)
         if m:
             try:
-                val = float(m.group(1))
-                return round(val, 1)
+                return round(float(m.group(1)), 1)
             except:
                 pass
 
-    years = round(total_months / 12, 1)
-    return years
+    return round(total_months / 12, 1)
 
-COMMON_SKILLS = ["python","java","sql","machine learning","nlp","c++","c","c#","r","javascript","docker","spring boot"]
+# ---------- company extractor ----------
+def extract_companies(text: str):
+    companies = []
+    work_section = re.findall(r"(?:Work Experience|Experience)([\s\S]+?)(?:Education|Skills|Projects|$)", 
+                              text, re.IGNORECASE)
+    if work_section:
+        lines = work_section[0].splitlines()
+        for line in lines:
+            m = re.search(r"•\s*([A-Za-z0-9 &]+)\s*\|", line)
+            if m:
+                companies.append(m.group(1).strip())
+    return companies
+
+# ---------------------------
+# Resume Parser
+# ---------------------------
+COMMON_SKILLS = ["python","java","sql","machine learning","nlp","c++","c","c#","r","javascript",
+                 "docker","spring boot","react","aws","kubernetes","selenium","android","pandas"]
 
 def parse_resume(text: str) -> dict:
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     name = lines[0] if lines else "Unknown"
+
     # Skills
     skills = []
     m = re.search(r"Skills\s*[:\-]\s*(.*)", text, re.IGNORECASE)
@@ -121,31 +123,40 @@ def parse_resume(text: str) -> dict:
         for kw in COMMON_SKILLS:
             if re.search(r'\b' + re.escape(kw) + r'\b', text, re.IGNORECASE):
                 skills.append(kw)
+
     exp = extract_experience_from_text(text)
+
     # Domain
     domain = "general"
     m = re.search(r"(Preferred Domain|Domain)\s*[:\-]\s*(.*)", text, re.IGNORECASE)
     if m:
         domain = m.group(2).strip()
     else:
-        if re.search(r'data|machine learning', text, re.IGNORECASE): domain = "data"
-        elif re.search(r'backend|software|developer', text, re.IGNORECASE): domain = "software"
+        if re.search(r'data|machine learning', text, re.IGNORECASE):
+            domain = "data"
+        elif re.search(r'backend|software|developer', text, re.IGNORECASE):
+            domain = "software"
+        elif re.search(r'cloud|aws', text, re.IGNORECASE):
+            domain = "cloud"
+        elif re.search(r'security', text, re.IGNORECASE):
+            domain = "security"
+        elif re.search(r'product', text, re.IGNORECASE):
+            domain = "product"
+
     return {
         "full_name": name,
         "id": atomify(name),
         "skills": [atomify(s) for s in skills],
         "raw_skills": skills,
         "experience": exp,
-        "domain": atomify(domain)
+        "domain": atomify(domain),
+        "companies": extract_companies(text)
     }
 
 # ---------------------------
-# Dummy Jobs (Python fallback if Prolog not available)
+# Job Knowledge Base (Python fallback for demo)
 # ---------------------------
 JOBS = [
-    {"title": "Data Scientist", "skills": ["python","machine_learning","sql"], "min_exp": 3, "domain": "data"},
-    {"title": "Data Engineer", "skills": ["python","sql"], "min_exp": 1, "domain": "data"},
-    {"title": "Backend Developer", "skills": ["java","sql"], "min_exp": 2, "domain": "software"},
     {"title": "data_scientist",       "skills": ["python","machine_learning","sql"],     "min_exp": 3, "domain": "data"},
     {"title": "data_engineer",        "skills": ["python","sql","etl"],                 "min_exp": 1, "domain": "data"},
     {"title": "machine_learning_eng", "skills": ["python","machine_learning","pytorch"], "min_exp": 2, "domain": "data"},
@@ -160,7 +171,7 @@ JOBS = [
     {"title": "product_manager",      "skills": ["agile","communication","sql"],        "min_exp": 3, "domain": "product"},
     {"title": "cloud_architect",      "skills": ["aws","docker","kubernetes"],          "min_exp": 4, "domain": "cloud"},
     {"title": "security_engineer",    "skills": ["networking","python","security"],     "min_exp": 3, "domain": "security"},
-    {"title": "analytics_engineer",   "skills": ["sql","python","dbt"],                 "min_exp": 2, "domain": "data"},
+    {"title": "analytics_engineer",   "skills": ["sql","python","dbt"],                 "min_exp": 2, "domain": "data"}
 ]
 
 def skill_match(cs, js): return (len(set(cs) & set(js)) / len(js)) * 100 if js else 0
@@ -177,7 +188,7 @@ def best_matches(c, top=3):
 # Streamlit UI
 # ---------------------------
 st.markdown("<h1 style='text-align:center'>💼 AI Job Matcher</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center; color:grey'>Upload resumes and see top job recommendations instantly</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; color:grey'>Upload resumes and discover top job recommendations instantly</p>", unsafe_allow_html=True)
 
 uploaded_files = st.file_uploader("📄 Upload Resume PDFs", type="pdf", accept_multiple_files=True)
 
@@ -186,18 +197,27 @@ if uploaded_files:
         text = extract_text_from_pdf(uf)
         cand = parse_resume(text)
 
-        st.subheader(f"👤 Candidate: {cand['full_name']}")
+        st.markdown(f"## 👤 {cand['full_name']}")
+
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown(f"**Experience:** {cand['experience']} years")
-            st.markdown(f"**Domain:** {cand['domain'].capitalize()}")
+            st.metric("Experience (yrs)", cand['experience'])
+            st.write(f"**Domain:** {cand['domain'].capitalize()}")
         with col2:
-            st.markdown("**Skills:**")
+            st.write("**Skills:**")
             st.write(", ".join(cand['raw_skills']) if cand['raw_skills'] else "Not detected")
+            if cand['companies']:
+                st.write("**Companies:** " + ", ".join(cand['companies']))
 
         st.markdown("### 🔎 Top Recommendations")
         matches = best_matches(cand, 3)
-        st.table([{"Job": m[0], "Match Score": f"{m[1]}%"} for m in matches])
+        for job, score in matches:
+            color = "green" if score >= 70 else "orange" if score >= 40 else "red"
+            st.markdown(
+                f"<div style='margin-bottom:8px'><b>{job.replace('_',' ').title()}</b>"
+                f"<div style='background:#ddd;width:100%;border-radius:5px'>"
+                f"<div style='width:{score}%;background:{color};padding:3px;border-radius:5px;color:white;text-align:center'>"
+                f"{score}%</div></div></div>", 
+                unsafe_allow_html=True
+            )
         st.markdown("---")
-
-

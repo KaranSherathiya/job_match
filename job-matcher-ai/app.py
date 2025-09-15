@@ -97,6 +97,21 @@ JOBS = [
     {"title": "Data Scientist", "skills": ["python","machine_learning","sql"], "min_exp": 3, "domain": "data"},
     {"title": "Data Engineer", "skills": ["python","sql"], "min_exp": 1, "domain": "data"},
     {"title": "Backend Developer", "skills": ["java","sql"], "min_exp": 2, "domain": "software"},
+    {"title": "data_scientist",       "skills": ["python","machine_learning","sql"],     "min_exp": 3, "domain": "data"},
+    {"title": "data_engineer",        "skills": ["python","sql","etl"],                 "min_exp": 1, "domain": "data"},
+    {"title": "machine_learning_eng", "skills": ["python","machine_learning","pytorch"], "min_exp": 2, "domain": "data"},
+    {"title": "nlp_engineer",         "skills": ["python","nlp","tensorflow"],          "min_exp": 2, "domain": "data"},
+    {"title": "business_analyst",     "skills": ["sql","excel","powerbi"],              "min_exp": 1, "domain": "data"},
+    {"title": "backend_dev",          "skills": ["java","sql","rest"],                  "min_exp": 2, "domain": "software"},
+    {"title": "frontend_dev",         "skills": ["javascript","react","css"],           "min_exp": 1, "domain": "software"},
+    {"title": "fullstack_dev",        "skills": ["javascript","python","sql"],          "min_exp": 2, "domain": "software"},
+    {"title": "devops_engineer",      "skills": ["docker","kubernetes","ci_cd"],        "min_exp": 2, "domain": "software"},
+    {"title": "qa_engineer",          "skills": ["selenium","java","testing"],          "min_exp": 1, "domain": "software"},
+    {"title": "mobile_dev",           "skills": ["java","kotlin","android"],            "min_exp": 2, "domain": "software"},
+    {"title": "product_manager",      "skills": ["agile","communication","sql"],        "min_exp": 3, "domain": "product"},
+    {"title": "cloud_architect",      "skills": ["aws","docker","kubernetes"],          "min_exp": 4, "domain": "cloud"},
+    {"title": "security_engineer",    "skills": ["networking","python","security"],     "min_exp": 3, "domain": "security"},
+    {"title": "analytics_engineer",   "skills": ["sql","python","dbt"],                 "min_exp": 2, "domain": "data"},
 ]
 
 def skill_match(cs, js): return (len(set(cs) & set(js)) / len(js)) * 100 if js else 0
@@ -135,3 +150,4 @@ if uploaded_files:
         matches = best_matches(cand, 3)
         st.table([{"Job": m[0], "Match Score": f"{m[1]}%"} for m in matches])
         st.markdown("---")
+
